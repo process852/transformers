@@ -333,14 +333,19 @@ class AdamW(Optimizer):
             loss = closure()
 
         for group in self.param_groups:
-            for p in group["params"]:
+            # for p in group["params"]:
+            for p in group.parameters:
                 if p.grad is None:
                     continue
                 grad = p.grad.data
-                if grad.is_sparse:
-                    raise RuntimeError("Adam does not support sparse gradients, please consider SparseAdam instead")
-
-                state = self.state[p]
+                if str(torch.__file__).split('/')[-2] == 'torch':
+                    if grad.is_sparse:
+                        raise RuntimeError("Adam does not support sparse gradients, please consider SparseAdam instead")
+                if str(torch.__file__).split('/')[-2] == 'torch':
+                    state = self.state[p]
+                else:
+                    self._state[p] = {}
+                    state = self._state[p]
 
                 # State initialization
                 if len(state) == 0:

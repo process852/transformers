@@ -753,7 +753,10 @@ class Trainer:
             # `args.seed`) if data_seed isn't provided.
             # Further on in this method, we default to `args.seed` instead.
             if self.args.data_seed is None:
-                seed = int(torch.empty((), dtype=torch.int64).random_().item())
+                if str(torch.__file__).split('/')[-2] == 'torch':
+                    seed = int(torch.empty((), dtype=torch.int64).random_().item())
+                else:
+                    seed = int(random.randint(0, 65536))
             else:
                 seed = self.args.data_seed
             generator.manual_seed(seed)
@@ -1443,12 +1446,16 @@ class Trainer:
 
             if self.args.ddp_bucket_cap_mb is not None:
                 kwargs["bucket_cap_mb"] = self.args.ddp_bucket_cap_mb
-            model = nn.parallel.DistributedDataParallel(
-                model,
-                device_ids=[self.args.local_rank] if self.args._n_gpu != 0 else None,
-                output_device=self.args.local_rank if self.args._n_gpu != 0 else None,
-                **kwargs,
-            )
+
+            if str(torch.__file__).split('/')[-2] == 'torch':
+                model = nn.parallel.DistributedDataParallel(
+                    model,
+                    device_ids=[self.args.local_rank] if self.args._n_gpu != 0 else None,
+                    output_device=self.args.local_rank if self.args._n_gpu != 0 else None,
+                    **kwargs,
+                )
+            else:
+                model = nn.parallel.DistributedDataParallel(model)
 
         return model
 
@@ -1776,8 +1783,8 @@ class Trainer:
                     and args._no_sync_in_gradient_accumulation
                 ):
                     # Avoid unnecessary DDP synchronization since there will be no backward pass on this example.
-                    with model.no_sync():
-                        tr_loss_step = self.training_step(model, inputs)
+                    # with model.no_sync():
+                    tr_loss_step = self.training_step(model, inputs)
                 else:
                     tr_loss_step = self.training_step(model, inputs)
 
@@ -1895,7 +1902,10 @@ class Trainer:
             if is_torch_tpu_available():
                 xm.rendezvous("load_best_model_at_end")
             elif args.local_rank != -1:
-                dist.barrier()
+                if str(torch.__file__).split('/')[-2] == 'torch':
+                    dist.barrier()
+                else:
+                    torch.comm.barrier()
             elif is_sagemaker_mp_enabled():
                 smp.barrier()
 
@@ -2242,17 +2252,25 @@ class Trainer:
             self.state.save_to_json(os.path.join(output_dir, TRAINER_STATE_NAME))
 
         # Save RNG state in non-distributed training
-        rng_states = {
-            "python": random.getstate(),
-            "numpy": np.random.get_state(),
-            "cpu": torch.random.get_rng_state(),
-        }
-        if torch.cuda.is_available():
-            if self.args.local_rank == -1:
-                # In non distributed, we save the global CUDA RNG state (will take care of DataParallel)
-                rng_states["cuda"] = torch.cuda.random.get_rng_state_all()
-            else:
-                rng_states["cuda"] = torch.cuda.random.get_rng_state()
+        if str(torch.__file__).split('/')[-2] == 'torch':
+            rng_states = {
+                "python": random.getstate(),
+                "numpy": np.random.get_state(),
+                "cpu": torch.random.get_rng_state(),
+            }
+        else:
+            rng_states = {
+                "python": random.getstate(),
+                "numpy": np.random.get_state(),
+                "cpu": torch.get_rng_state(),
+            }
+        if str(torch.__file__).split('/')[-2] == 'torch':
+            if torch.cuda.is_available():
+                if self.args.local_rank == -1:
+                    # In non distributed, we save the global CUDA RNG state (will take care of DataParallel)
+                    rng_states["cuda"] = torch.cuda.random.get_rng_state_all()
+                else:
+                    rng_states["cuda"] = torch.cuda.random.get_rng_state()
 
         if is_torch_tpu_available():
             rng_states["xla"] = xm.get_rng_state()
@@ -2716,7 +2734,10 @@ class Trainer:
             self.tokenizer.save_pretrained(output_dir)
 
         # Good practice: save your training arguments together with the trained model
-        torch.save(self.args, os.path.join(output_dir, TRAINING_ARGS_NAME))
+        if str(torch.__file__).split('/')[-2] == "torch":
+            torch.save(self.args, os.path.join(output_dir, TRAINING_ARGS_NAME))
+        else:
+            print("oneflow torch not save training args")
 
     def store_flos(self):
         # Storing the number of floating-point operations that went into the model

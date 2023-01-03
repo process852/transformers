@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from functools import partial
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
+import oneflow.mock_torch as mock
 import torch
 from packaging import version
 from torch import Tensor, nn
@@ -412,7 +413,23 @@ def load_state_dict(checkpoint_file: Union[str, os.PathLike]):
             )
         return safe_load_file(checkpoint_file)
     try:
-        return torch.load(checkpoint_file, map_location="cpu")
+        global torch
+        # print(torch.__file__)
+        framework_name = str(torch.__file__).split('/')[-2]
+        if framework_name == 'torch':
+            return torch.load(checkpoint_file, map_location = "cpu")
+        elif framework_name == 'oneflow':
+            with mock.disable():
+                import torch
+                # print(torch.__file__)
+                def pt2oneflow(pt_state_dict):
+                    for key, value in pt_state_dict.items():
+                        val = value.detach().cpu().numpy()
+                        # print(key, val.dtype)
+                        pt_state_dict[key] = val
+                    return pt_state_dict
+                pt_state_dict = torch.load(checkpoint_file)
+                return pt2oneflow(pt_state_dict)
     except Exception as e:
         try:
             with open(checkpoint_file) as f:
