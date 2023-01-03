@@ -1388,11 +1388,15 @@ class TrainingArguments:
     def _setup_devices(self) -> "torch.device":
         requires_backends(self, ["torch"])
         logger.info("PyTorch: setting up devices")
-        if torch.distributed.is_available() and torch.distributed.is_initialized() and self.local_rank == -1:
-            logger.warning(
-                "torch.distributed process group is initialized, but local_rank == -1. "
-                "In order to use Torch DDP, launch your script with `python -m torch.distributed.launch"
-            )
+        framework_name = str(torch.__file__).split('/')[-2]
+        if framework_name == 'torch':
+            if torch.distributed.is_available() and torch.distributed.is_initialized() and self.local_rank == -1:
+                logger.warning(
+                    "torch.distributed process group is initialized, but local_rank == -1. "
+                    "In order to use Torch DDP, launch your script with `python -m torch.distributed.launch"
+                )
+        else:
+            print("Use oneflow torch API")
         if self.no_cuda:
             device = torch.device("cpu")
             self._n_gpu = 0
@@ -1525,8 +1529,9 @@ class TrainingArguments:
         else:
             # Here, we'll use torch.distributed.
             # Initializes the distributed backend which will take care of synchronizing nodes/GPUs
-            if not torch.distributed.is_initialized():
-                torch.distributed.init_process_group(backend="nccl", timeout=self.ddp_timeout_delta)
+            if str(torch.__file__).split('/')[-2] == 'torch':
+                if not torch.distributed.is_initialized():
+                    torch.distributed.init_process_group(backend="nccl", timeout=self.ddp_timeout_delta)
             device = torch.device("cuda", self.local_rank)
             self._n_gpu = 1
 
@@ -1596,7 +1601,10 @@ class TrainingArguments:
         elif is_sagemaker_dp_enabled():
             return dist.get_world_size()
         elif self.local_rank != -1:
-            return torch.distributed.get_world_size()
+            try:
+                return torch.distributed.get_world_size()
+            except (NotImplementedError,):
+                return 1
         return 1
 
     @property
@@ -1612,7 +1620,10 @@ class TrainingArguments:
         elif is_sagemaker_dp_enabled():
             return dist.get_rank()
         elif self.local_rank != -1:
-            return torch.distributed.get_rank()
+            try:
+                return torch.distributed.get_rank()
+            except (NotImplementedError,):
+                return 0
         return 0
 
     @property

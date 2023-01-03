@@ -50,7 +50,8 @@ try:
     from torch.optim.lr_scheduler import SAVE_STATE_WARNING
 except ImportError:
     SAVE_STATE_WARNING = ""
-
+except Exception as e:
+    SAVE_STATE_WARNING = ""
 logger = logging.get_logger(__name__)
 
 
@@ -190,8 +191,12 @@ def distributed_concat(tensor: Any, num_total_examples: Optional[int] = None) ->
         if isinstance(tensor, (tuple, list)):
             return type(tensor)(distributed_concat(t, num_total_examples) for t in tensor)
         tensor = atleast_1d(tensor)
-        output_tensors = [tensor.clone() for _ in range(dist.get_world_size())]
-        dist.all_gather(output_tensors, tensor)
+        if str(torch.__file__).split('/')[-2] == 'torch':
+            output_tensors = [tensor.clone() for _ in range(dist.get_world_size())]
+            dist.all_gather(output_tensors, tensor)
+        else:
+            output_tensors = [tensor.clone() for _ in range(torch.env.get_world_size())]
+            torch.comm.all_gather(output_tensors, tensor)
         concat = torch.cat(output_tensors, dim=0)
 
         # truncate the dummy elements added by SequentialDistributedSampler
@@ -209,8 +214,12 @@ def distributed_broadcast_scalars(
 ) -> torch.Tensor:
     try:
         tensorized_scalar = torch.tensor(scalars).to(device)
-        output_tensors = [tensorized_scalar.clone() for _ in range(dist.get_world_size())]
-        dist.all_gather(output_tensors, tensorized_scalar)
+        if str(torch.__file__).split('/')[-2] == 'torch':
+            output_tensors = [tensorized_scalar.clone() for _ in range(dist.get_world_size())]
+            dist.all_gather(output_tensors, tensorized_scalar)
+        else:
+            output_tensors = [tensorized_scalar.clone() for _ in range(torch.env.get_world_size())]
+            torch.comm.all_gather(output_tensors, tensorized_scalar)
         concat = torch.cat(output_tensors, dim=0)
 
         # truncate the dummy elements added by SequentialDistributedSampler

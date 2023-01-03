@@ -1041,9 +1041,16 @@ class DummyObject(type):
 
 def is_torch_fx_proxy(x):
     if is_torch_fx_available():
-        import torch.fx
-
-        return isinstance(x, torch.fx.Proxy)
+        try:
+            import torch.fx
+            flag = isinstance(x, torch.fx.Proxy)
+            # print(flag)
+            if flag:
+                return True
+        except Exception as e:
+            # print(repr(e))
+            return False
+        # return isinstance(x, torch.fx.Proxy)
     return False
 
 
